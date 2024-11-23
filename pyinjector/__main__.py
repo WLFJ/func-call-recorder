@@ -3,6 +3,8 @@ from pyinjector.controller import Controller
 
 import sys
 import subprocess
+import os
+
 
 def main():
     global_cfg = Config()
@@ -18,6 +20,15 @@ def main():
 
     command = sys.argv[1:]
 
+    # get current process enviroment, inorder to patch and exec sub process.
+    env = dict()
+    for k, v in os.environ.items():
+        env[k] = v
+
+    # patch env
+    env["LD_PRELOAD"] = global_cfg.injector_path
+
+    print("running env:", env)
+
     # modify command to add LD_PRELOAD hook, then exec it in sub process.
-    subprocess.run(command, env={"LD_PRELOAD": global_cfg.injector_path})
-    
+    subprocess.run(command, env=env)
