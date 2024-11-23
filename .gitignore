@@ -7,3 +7,4 @@ pyinjector/__pycache__
 pyinjector/controller/__pycache__
 pyinjector/controller/Controller.**.so
 pyinjector.egg-info
+dist

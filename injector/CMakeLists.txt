@@ -1,4 +1,3 @@
-
 # add a shard library target
 add_library(Injector SHARED injector.cpp)
 
@@ -9,4 +8,5 @@ target_link_libraries(Injector fmt)
 add_custom_command(
   TARGET Injector
   POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:Injector> ${CMAKE_SOURCE_DIR}/pyinjector/lib)
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:Injector>
+          ${CMAKE_SOURCE_DIR}/pyinjector/lib)
