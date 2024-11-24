@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <bits/ranges_algo.h>
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <dlfcn.h>
 #include <filesystem>
@@ -72,12 +73,12 @@ struct Context {
   std::vector<StackTraceAction> stackActionHistory{};
 
   // 这里做的是统一的内存管理
-  std::list<std::unique_ptr<StackTrace>> traceList{};
+  std::list<std::unique_ptr<StackTrace>> traceNodes{};
 
   void clear() noexcept {
     assert(stack.empty());
     stackActionHistory.clear();
-    traceList.clear();
+    traceNodes.clear();
   }
 
 private:
@@ -98,8 +99,13 @@ void to_json(json &j, const StackTrace &n) {
            {"indent", n.indent}};
 }
 
+void to_json(json &j, const std::unique_ptr<StackTrace> &st_ptr) {
+  j = json{{"id", reinterpret_cast<uintptr_t>(st_ptr.get())},
+           {"value", *st_ptr}};
+}
+
 void to_json(json &j, const StackTraceAction &a) {
-  j = json{{"traceNode", *a.traceNode},
+  j = json{{"traceNodeId", reinterpret_cast<uintptr_t>(a.traceNode)},
            {"action",
             a.action == StackTraceAction::Action::Enter ? "Enter" : "Exit"}};
 }
@@ -164,7 +170,8 @@ void __cyg_profile_func_enter(void *child, void *parent) {
 
   // 这个列表并不能说明函数调用的顺序，他们顶多只能算是"节点"
   // 并且还有内存问题
-  ctx->traceList.emplace_back(std::unique_ptr<Injector::StackTrace>(traceNode));
+  ctx->traceNodes.emplace_back(
+      std::unique_ptr<Injector::StackTrace>(traceNode));
   ctx->stack.push(traceNode);
 
   // 我们在这里记录函数的变化路径，将进入和离开都记录一下吧！
@@ -200,11 +207,13 @@ void __injector_set_watch(bool tag) {
     auto &history = ctx->stackActionHistory;
 
     json hist_j(history);
+    json nodes_j(ctx->traceNodes);
+    json db_j{{"nodes", nodes_j}, {"history", hist_j}};
 
     auto file = std::filesystem::path("trace.txt");
     auto fos = std::ofstream(file, std::ios::out);
 
-    fos << hist_j.dump(4) << "\n";
+    fos << db_j.dump(2) << "\n";
 
     fos.flush();
     fos.close();
