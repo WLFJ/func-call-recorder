@@ -1,4 +1,3 @@
-// #include "AddrToLine.h"
 #include <algorithm>
 #include <bits/ranges_algo.h>
 #include <cassert>
@@ -9,10 +8,15 @@
 #include <iostream>
 #include <list>
 #include <memory>
+#include <nlohmann/json_fwd.hpp>
 #include <stack>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 namespace Injector {
 
@@ -42,9 +46,16 @@ struct StackTrace {
 
   size_t indent = 0;
 
-  std::string_view filePath{"INVALID_PATH"};
-  size_t loc{};
-  std::string funcName{"INVALID"};
+  auto getSymbolAddr() const -> const uintptr_t {
+    assert(childPtr >= baseAddr);
+    return childPtr - baseAddr;
+  }
+};
+
+// 设计一个结构体用于表示StackTrace的入栈出栈动作
+struct StackTraceAction {
+  StackTrace *traceNode;
+  enum class Action { Enter, Exit } action;
 };
 
 struct Context {
@@ -58,7 +69,16 @@ struct Context {
 
   bool isWatch = false;
   std::stack<StackTrace *> stack{};
-  std::list<std::unique_ptr<StackTrace *>> traceList{};
+  std::vector<StackTraceAction> stackActionHistory{};
+
+  // 这里做的是统一的内存管理
+  std::list<std::unique_ptr<StackTrace>> traceList{};
+
+  void clear() noexcept {
+    assert(stack.empty());
+    stackActionHistory.clear();
+    traceList.clear();
+  }
 
 private:
   // std::unordered_map<std::string_view, std::unique_ptr<ElfTools::ElfDumper
@@ -69,6 +89,28 @@ private:
   std::unique_ptr<Filter *> filter =
       std::make_unique<Filter *>(new Filter{{"/home/yvesw"}});
 };
+
+void to_json(json &j, const StackTrace &n) {
+  j = json{{"libName", n.libName},
+           {"childPtr", n.childPtr},
+           {"parentPtr", n.parentPtr},
+           {"baseAddr", n.baseAddr},
+           {"indent", n.indent}};
+}
+
+void to_json(json &j, const StackTraceAction &a) {
+  j = json{{"traceNode", *a.traceNode},
+           {"action",
+            a.action == StackTraceAction::Action::Enter ? "Enter" : "Exit"}};
+}
+
+void from_json(const json &j, StackTrace &n) {
+  throw std::runtime_error("Not implemented");
+}
+
+void from_json(const json &j, StackTraceAction &a) {
+  throw std::runtime_error("Not implemented");
+}
 
 } // namespace Injector
 
@@ -102,6 +144,7 @@ void __cyg_profile_func_enter(void *child, void *parent) {
     if (parentTrackNode->childPtr == parentAddr) [[likely]] {
       indent++;
     } else {
+      // TODO: 这样做是不准的
       indent += 2;
     }
   }
@@ -119,47 +162,54 @@ void __cyg_profile_func_enter(void *child, void *parent) {
                                             .baseAddr = baseAddr,
                                             .indent = indent};
 
-  ctx->traceList.emplace_back(
-      std::make_unique<Injector::StackTrace *>(traceNode));
+  // 这个列表并不能说明函数调用的顺序，他们顶多只能算是"节点"
+  // 并且还有内存问题
+  ctx->traceList.emplace_back(std::unique_ptr<Injector::StackTrace>(traceNode));
   ctx->stack.push(traceNode);
+
+  // 我们在这里记录函数的变化路径，将进入和离开都记录一下吧！
+  ctx->stackActionHistory.emplace_back(Injector::StackTraceAction{
+      traceNode, Injector::StackTraceAction::Action::Enter});
 }
 
 void __cyg_profile_func_exit(void *child, void *parent) {
   if (not ctx->isWatch)
     return;
 
+  uintptr_t childAddr = (uintptr_t)child;
+  uintptr_t parentAddr = (uintptr_t)parent;
+
   assert(not ctx->stack.empty());
 
   auto traceNode = ctx->stack.top();
 
+  // 这里没写完啊，我们需要在这里考虑mismatch的情况，目前我们先插入assertion
+  assert(traceNode->parentPtr == parentAddr);
+
   ctx->stack.pop();
+  ctx->stackActionHistory.emplace_back(Injector::StackTraceAction{
+      traceNode, Injector::StackTraceAction::Action::Exit});
 }
 
 // export to python.
 void __injector_set_watch(bool tag) {
-  // 在停止的时候将结果导出
   if (ctx->isWatch && not tag) {
     // std::cerr << "track finished.\n";
     assert(ctx->stack.empty());
 
-    const auto traceList = &ctx->traceList;
+    auto &history = ctx->stackActionHistory;
 
-    auto file = std::filesystem::path("./trace.txt");
+    json hist_j(history);
+
+    auto file = std::filesystem::path("trace.txt");
     auto fos = std::ofstream(file, std::ios::out);
 
-    const Injector::StackTrace *lastTrace{};
-
-    std::for_each(traceList->cbegin(), traceList->cend(),
-                  [&fos, &lastTrace](const auto &traceNode) {
-                    auto node = *traceNode;
-
-                    fos << node->childPtr - node->baseAddr << "\n";
-                  });
+    fos << hist_j.dump(4) << "\n";
 
     fos.flush();
     fos.close();
 
-    traceList->clear();
+    ctx->clear();
   }
   ctx->isWatch = tag;
 }
