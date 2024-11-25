@@ -42,5 +42,11 @@ setup(
         "console_scripts": ["pyinjector = pyinjector.__main__:main"]
     },
     extras_require={"test": read_requirements("requirements-test.txt")},
-    package_data={"pyinjector": ["lib/*.so", "controller/*.so"]},
+    package_data={
+        "pyinjector": [
+            "lib/*.so",
+            "controller/*.so",
+            "bindclang/*.so"
+        ]
+    },
 )

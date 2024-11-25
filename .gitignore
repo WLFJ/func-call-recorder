@@ -8,3 +8,5 @@ pyinjector/controller/__pycache__
 pyinjector/controller/Controller.**.so
 pyinjector.egg-info
 dist
+pyinjector/bindclang/__pycache__
+pyinjector/bindclang/bindclang.cpython-311-x86_64-linux-gnu.so
